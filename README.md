@@ -2,7 +2,7 @@
 
 > 将 Blender 3D 场景转化为 AI 可理解的世界数据库
 
-| [![version](https://img.shields.io/badge/version-0.12.0-blue)]() | [![blender](https://img.shields.io/badge/blender-4.2%2B%20%7C%205.0-orange)]() |
+| [![version](https://img.shields.io/badge/version-0.12.0-blue)]() | [![blender](https://img.shields.io/badge/blender-4.2%E2%80%935.x-orange)]() |
 
 ---
 
