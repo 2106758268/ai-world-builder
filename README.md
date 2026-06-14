@@ -112,4 +112,4 @@ MIT
 
 ---
 
-☁️ Made with ❤️ by [终](https://github.com/2106758268) & 云袖
+MIT License
