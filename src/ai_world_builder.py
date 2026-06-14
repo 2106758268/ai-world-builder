@@ -165,16 +165,17 @@ class AWB_PT_WorldManagementPanel(Panel):
 
         if relations:
             col = box.column(align=True)
-            for rel in relations:
-                a = rel.get("from", "?")
-                b = rel.get("to", "?")
+            for i, rel in enumerate(relations):
+                a = rel.get("source", rel.get("from", "?"))
+                b = rel.get("target", rel.get("to", "?"))
                 t = rel.get("type", "?")
+                # 尝试把物体ID映射为标签名
+                a_label = _resolve_label(a) or a
+                b_label = _resolve_label(b) or b
                 row = col.row(align=True)
-                row.label(text=f"{a} → {b} ({t})")
+                row.label(text=f"{a_label} → {b_label} ({t})")
                 op = row.operator("awb.remove_relation", text="", icon="X")
-                op.relation_from = a
-                op.relation_to = b
-                op.relation_type = t
+                op.rel_index = i
 
         # 快速关系
         selected = [o for o in context.selected_objects if has_annotation(o) and getattr(o, "awb_id", "")]
@@ -186,6 +187,9 @@ class AWB_PT_WorldManagementPanel(Panel):
             op.rel_type = "inside"
             op = row.operator("awb.quick_relation", text="above →", icon="LINKED")
             op.rel_type = "above"
+        else:
+            if not relations:
+                box.label(text="选中 2 个已标注物体建立关系", icon="INFO")
 
 
 
@@ -193,6 +197,17 @@ class AWB_PT_WorldManagementPanel(Panel):
 # =============================================================================
 # Helpers
 # =============================================================================
+
+
+def _resolve_label(obj_id: str) -> str:
+    """根据 awb_id 查找物体标签名"""
+    for obj in bpy.context.scene.objects:
+        if getattr(obj, "awb_id", "") == obj_id:
+            label = getattr(obj, "awb_label", "")
+            return label or obj.name
+    return ""
+
+
 import os
 import sys
 import uuid
@@ -2145,6 +2160,7 @@ def _register_scene_properties():
     # 区域
     bpy.types.Scene.awb_new_region_name = StringProperty(name="awb_new_region_name", default="")
     bpy.types.Scene.awb_regions = StringProperty(name="awb_regions", default="")
+    bpy.types.Scene.awb_relations = StringProperty(name="awb_relations", default="[]")
     bpy.types.Scene.awb_conn_idx_a = IntProperty(name="awb_conn_idx_a", default=-1)
     # 高级面板开关
     bpy.types.Scene.awb_show_advanced = BoolProperty(name="awb_show_advanced", default=False)
@@ -2172,6 +2188,7 @@ def _unregister_scene_properties():
         "awb_rel_source", "awb_rel_target", "awb_rel_type",
         "awb_conn_src", "awb_conn_dst",
         "awb_new_region_name", "awb_conn_idx_a",
+        "awb_regions", "awb_relations",
         "awb_show_advanced",
     ]
     for prop in scene_props:
