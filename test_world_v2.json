@@ -1,0 +1,70 @@
+{
+  "version": "2.0.0",
+  "metadata": {
+    "scene_name": "小屋",
+    "export_time": "2026-06-12T18:50:00",
+    "unit": "meters"
+  },
+  "objects": [
+    {
+      "id": "chair_01",
+      "label": "木椅",
+      "type": "chair",
+      "region": "living_room",
+      "attrs": {"material": "wood", "kind": null, "color": null, "size": null, "style": "antique", "species": null, "role": null, "name": null}
+    },
+    {
+      "id": "table_01",
+      "label": "茶几",
+      "type": "table",
+      "region": "living_room",
+      "attrs": {"material": "wood", "kind": null, "color": null, "size": "small", "style": null, "species": null, "role": null, "name": null}
+    },
+    {
+      "id": "door_01",
+      "label": "大门",
+      "type": "door",
+      "region": "entrance",
+      "attrs": {"material": "wood", "kind": null, "color": null, "size": null, "style": null, "species": null, "role": null, "name": null}
+    },
+    {
+      "id": "key_01",
+      "label": "铁钥匙",
+      "type": "key",
+      "region": null,
+      "attrs": {"material": "iron", "kind": null, "color": null, "size": "small", "style": null, "species": null, "role": null, "name": null}
+    },
+    {
+      "id": "chest_01",
+      "label": "老木箱",
+      "type": "container",
+      "region": "bedroom",
+      "attrs": {"material": "wood", "kind": "chest", "color": null, "size": "large", "style": null, "species": null, "role": null, "name": null}
+    },
+    {
+      "id": "lamp_01",
+      "label": "落地灯",
+      "type": "lamp",
+      "region": "living_room",
+      "attrs": {"material": "metal", "kind": null, "color": null, "size": null, "style": "modern", "species": null, "role": null, "name": null}
+    }
+  ],
+  "regions": [
+    {"id": "reg_001", "name": "living_room", "label": "客厅", "connections": ["entrance", "bedroom"]},
+    {"id": "reg_002", "name": "bedroom", "label": "卧室", "connections": ["living_room"]},
+    {"id": "reg_003", "name": "entrance", "label": "入口", "connections": ["living_room"]}
+  ],
+  "relations": [
+    {"type": "unlocks", "source": "key_01", "target": "door_01"},
+    {"type": "connects", "source": "door_01", "target": "living_room"},
+    {"type": "connects", "source": "door_01", "target": "entrance"}
+  ],
+  "templates": {
+    "chair": {"description": "A seat for characters.", "interactions": ["sit"], "slots": ["transform"]},
+    "table": {"description": "A surface.", "interactions": ["use"], "slots": ["transform"]},
+    "door": {"description": "A passage between regions.", "interactions": ["open", "close"], "slots": ["open", "locked", "transform"]},
+    "key": {"description": "Unlocks something.", "interactions": ["use_on"], "slots": []},
+    "container": {"description": "Stores items.", "interactions": ["open", "close"], "slots": ["open", "locked", "inventory"]},
+    "lamp": {"description": "A light source.", "interactions": ["turn_on", "turn_off"], "slots": ["on"]}
+  }
+}

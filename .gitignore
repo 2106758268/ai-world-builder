@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+*.awb_world_data.json
+archive/

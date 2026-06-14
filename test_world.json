@@ -1,0 +1,89 @@
+{
+  "version": "0.1.0",
+  "scene_name": "小屋",
+  "regions": [
+    {"id": "reg_001", "name": "客厅", "connections": ["reg_002", "reg_004"]},
+    {"id": "reg_002", "name": "书房", "connections": ["reg_001"]},
+    {"id": "reg_003", "name": "卧室", "connections": ["reg_002"]},
+    {"id": "reg_004", "name": "入口", "connections": ["reg_001"]}
+  ],
+  "objects": [
+    {
+      "id": "001",
+      "label": "木椅",
+      "category": "furniture",
+      "tags": ["可移动", "木质"],
+      "interactions": ["坐", "检查"],
+      "region": "客厅",
+      "position": {"x": 2.0, "y": 0.0, "z": 3.0}
+    },
+    {
+      "id": "002",
+      "label": "沙发",
+      "category": "furniture",
+      "tags": ["固定", "柔软"],
+      "interactions": ["坐", "躺"],
+      "region": "客厅",
+      "position": {"x": 5.0, "y": 0.0, "z": 1.0}
+    },
+    {
+      "id": "003",
+      "label": "茶几",
+      "category": "furniture",
+      "tags": ["固定", "木质"],
+      "interactions": ["放置物品", "检查"],
+      "region": "客厅",
+      "position": {"x": 3.5, "y": 0.0, "z": 2.0}
+    },
+    {
+      "id": "004",
+      "label": "落地灯",
+      "category": "light",
+      "tags": ["发光", "可开关"],
+      "interactions": ["开关", "检查"],
+      "region": "客厅",
+      "position": {"x": 1.0, "y": 0.0, "z": 0.5}
+    },
+    {
+      "id": "005",
+      "label": "书架",
+      "category": "furniture",
+      "tags": ["固定", "木质", "遮挡视线"],
+      "interactions": ["检查", "翻阅"],
+      "region": "书房",
+      "position": {"x": 8.0, "y": 0.0, "z": 2.0}
+    },
+    {
+      "id": "006",
+      "label": "书桌",
+      "category": "furniture",
+      "tags": ["固定", "木质"],
+      "interactions": ["坐", "写"],
+      "region": "书房",
+      "position": {"x": 8.0, "y": 0.0, "z": 5.0}
+    },
+    {
+      "id": "007",
+      "label": "老木箱",
+      "category": "container",
+      "tags": ["可移动", "木质"],
+      "interactions": ["打开", "检查"],
+      "region": "卧室",
+      "position": {"x": 12.0, "y": 0.0, "z": 3.0}
+    },
+    {
+      "id": "008",
+      "label": "大门",
+      "category": "door",
+      "tags": ["固定", "可开关"],
+      "interactions": ["打开", "关闭"],
+      "region": "入口",
+      "position": {"x": 0.0, "y": 0.0, "z": 6.0}
+    }
+  ],
+  "relations": [
+    {"source": "008", "type": "connects_to", "target": "001"},
+    {"source": "007", "type": "contains", "target": "003"}
+  ],
+  "metadata": {"export_time": "2026-06-10T16:27:00", "unit": "meters"}
+}
