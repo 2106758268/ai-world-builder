@@ -178,18 +178,24 @@ class AWB_PT_WorldManagementPanel(Panel):
                 op.rel_index = i
 
         # 快速关系
-        selected = [o for o in context.selected_objects if has_annotation(o) and getattr(o, "awb_id", "")]
-        if len(selected) == 2:
+        all_sel = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+        selected = [o for o in all_sel if getattr(o, "awb_id", "")]
+        if len(selected) >= 2:
+            # 合并按钮（2+ 就显示）
             row = box.row(align=True)
-            op = row.operator("awb.quick_relation", text="on →", icon="LINKED")
-            op.rel_type = "on"
-            op = row.operator("awb.quick_relation", text="in →", icon="LINKED")
-            op.rel_type = "inside"
-            op = row.operator("awb.quick_relation", text="above →", icon="LINKED")
-            op.rel_type = "above"
+            op = row.operator("awb.merge_objects", text="🔗 合并为同一物体", icon="MOD_ARRAY")
+            # 正好 2 个时也显示快速关系
+            if len(selected) == 2:
+                row = box.row(align=True)
+                op = row.operator("awb.quick_relation", text="on →", icon="LINKED")
+                op.rel_type = "on"
+                op = row.operator("awb.quick_relation", text="in →", icon="LINKED")
+                op.rel_type = "inside"
+                op = row.operator("awb.quick_relation", text="above →", icon="LINKED")
+                op.rel_type = "above"
         else:
             if not relations:
-                box.label(text="选中 2 个已标注物体建立关系", icon="INFO")
+                box.label(text="选中 2+ 个已标注物体建立关系或合并", icon="INFO")
 
 
 
@@ -197,6 +203,17 @@ class AWB_PT_WorldManagementPanel(Panel):
 # =============================================================================
 # Helpers
 # =============================================================================
+
+
+def _awb_get(obj, key, default=""):
+    """安全读取 awb 标注属性（存在 blend 文件里，重载不丢）"""
+    return obj.get(key, default) if obj else default
+
+
+def _awb_set(obj, key, value):
+    """安全写入 awb 标注属性"""
+    if obj:
+        obj[key] = value
 
 
 def _resolve_label(obj_id: str) -> str:
@@ -255,6 +272,18 @@ TYPE_ENUM = [
     ("region", "区域标记", "房间边界、触发区"),
     ("misc", "其他", "无法归入以上分类"),
 ]
+def _awb_type_get(obj):
+    """get 回调：从原生属性恢复 awb_type
+    EnumProperty 注册后 default 不会覆盖有原生值的物体。
+    如果原生属性无值，返回 unclassified。"""
+    try:
+        val = obj.get('awb_type', None)
+        if val is not None:
+            return val
+    except Exception:
+        pass
+    return 'unclassified'
+
 
 # 自定义属性 ID，用于检测物体是否已标注（非 UUID 的备用标记）
 AWB_ID_KEY = "awb_id"
@@ -263,6 +292,48 @@ AWB_ID_KEY = "awb_id"
 # =============================================================================
 # Helpers
 # =============================================================================
+
+def _awb_type_set(obj, value):
+    """set 回调：写原生属性 + 自动 ID/label + 保存 JSON"""
+    obj['awb_type'] = value
+    if not obj.get('awb_id'):
+        obj['awb_id'] = f"{obj.name}_{uuid.uuid4().hex[:8]}"
+    if not obj.get('awb_label'):
+        obj['awb_label'] = obj.name
+    obj['awb_id'] = obj.get('awb_id', '')
+    obj['awb_label'] = obj.get('awb_label', '')
+    _save_all_to_file()
+
+def _on_object_type_update(self, context):
+    """物体类型变更时，如果没有 awb_id 则自动分配"""
+    if self.awb_type == "unclassified":
+        return
+    awb_id = getattr(self, "awb_id", "")
+    if not awb_id:
+        self.awb_id = f"{self.name}_{uuid.uuid4().hex[:8]}"
+    # 如果没有标签，用物体名兜底
+    if not getattr(self, "awb_label", ""):
+        self.awb_label = self.name
+    # 同步写入原生自定义属性（持久化）
+    self['awb_type'] = self.awb_type
+    self['awb_id'] = self.awb_id
+    self['awb_label'] = self.awb_label
+    _save_all_to_file()
+
+
+def _on_object_region_update(self, context):
+    """物体区域变更时，自动将新区域加入全局区域列表"""
+    region_name = getattr(self, "awb_region", "").strip()
+    self['awb_region'] = region_name  # 持久化到原生属性
+    if not region_name:
+        return
+    regions = _load_regions()
+    existing = {r.get("name", "") for r in regions}
+    if region_name not in existing:
+        regions.append({"name": region_name, "connections": []})
+        _save_regions(regions)
+    _save_all_to_file()  # 物体标注变更也保存
+
 
 def has_annotation(obj):
     """检查物体是否已标注（category 不等于 unclassified 即视为已标注）"""
@@ -638,7 +709,7 @@ def _get_data_path():
 
 
 def _save_all_to_file():
-    """保存区域 + 关系到 blend 文件旁"""
+    """保存区域 + 关系 + 物体标注 到 blend 文件旁"""
     data_path = _get_data_path()
     if not data_path:
         return
@@ -646,18 +717,33 @@ def _save_all_to_file():
         scene = bpy.context.scene
         raw_regions = getattr(scene, "awb_regions", "[]")
         raw_relations = getattr(scene, "awb_relations", "[]")
+        # 收集所有物体标注
+        objects_data = []
+        for obj in scene.objects:
+            if obj.type == 'MESH' and getattr(obj, "awb_type", "unclassified") != "unclassified":
+                objects_data.append({
+                    "name": obj.name,
+                    "awb_type": getattr(obj, "awb_type", ""),
+                    "awb_id": getattr(obj, "awb_id", ""),
+                    "awb_label": getattr(obj, "awb_label", ""),
+                    "awb_region": getattr(obj, "awb_region", ""),
+                    "awb_flags": getattr(obj, "awb_flags", ""),
+                    "awb_actions": getattr(obj, "awb_actions", ""),
+                    "awb_properties": getattr(obj, "awb_properties", "{}"),
+                })
         data = {
             "regions": json.loads(raw_regions) if isinstance(raw_regions, str) else [],
             "relations": json.loads(raw_relations) if isinstance(raw_relations, str) else [],
+            "objects": objects_data,
         }
         with open(data_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception:
-        pass  # 未保存或不支持上下文
+        pass
 
 
 def _load_all_from_file():
-    """从 blend 文件旁恢复区域 + 关系"""
+    """从 blend 文件旁恢复区域 + 关系 + 物体标注"""
     data_path = _get_data_path()
     if not data_path or not os.path.exists(data_path):
         return
@@ -666,12 +752,26 @@ def _load_all_from_file():
             data = json.load(f)
         regions = data.get("regions", [])
         relations = data.get("relations", [])
+        objects_data = data.get("objects", [])
         scene = bpy.context.scene
         if regions:
             scene.awb_regions = json.dumps(regions, ensure_ascii=False)
         if relations:
             scene.awb_relations = json.dumps(relations, ensure_ascii=False)
-        print(f"[AWB] 从 {data_path} 恢复 {len(regions)} 区域, {len(relations)} 条关系")
+        # 恢复物体标注（JSON 优先覆盖）
+        restored = 0
+        for entry in objects_data:
+            obj = scene.objects.get(entry.get("name", ""))
+            if obj and obj.type == 'MESH':
+                try:
+                    for key in ['awb_type', 'awb_id', 'awb_label', 'awb_region', 'awb_flags', 'awb_actions', 'awb_properties']:
+                        val = entry.get(key, "")
+                        if val:
+                            setattr(obj, key, val)
+                    restored += 1
+                except Exception as e:
+                    print(f"[AWB] 恢复 {entry.get('name')} 失败: {e}")
+        print(f"[AWB] 从 {data_path} 恢复 {len(regions)} 区域, {len(relations)} 条关系, {restored} 物体标注")
     except Exception as e:
         print(f"[AWB] 恢复失败: {e}")
 
@@ -1507,6 +1607,45 @@ class AWB_OT_QuickRelation(Operator):
         return {"FINISHED"}
 
 
+class AWB_OT_MergeObjects(Operator):
+    """选中多个物体 → 合并为同一 awb_id（用于多部件模型如角色）"""
+    bl_idname = "awb.merge_objects"
+    bl_label = "合并为同一物体"
+    bl_description = "选中的多个已标注物体共享同一个 awb_id"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        selected = [o for o in context.selected_objects if o.type == 'MESH']
+        if len(selected) < 2:
+            self.report({"ERROR"}, "请选中至少 2 个 mesh 物体")
+            return {"CANCELLED"}
+        master = None
+        for o in selected:
+            if getattr(o, "awb_id", ""):
+                master = o
+                break
+        if not master:
+            self.report({"ERROR"}, "至少一个物体需要先标注（有 awb_id）")
+            return {"CANCELLED"}
+        master_id = getattr(master, "awb_id", "")
+        master_label = getattr(master, "awb_label", master.name)
+        master_type = getattr(master, "awb_type", "")
+        master_region = getattr(master, "awb_region", "")
+        count = 0
+        for o in selected:
+            if o == master:
+                continue
+            o.awb_id = master_id
+            o.awb_label = master_label
+            if master_type:
+                o.awb_type = master_type
+            if master_region:
+                o.awb_region = master_region
+            count += 1
+        self.report({"INFO"}, f"已将 {count} 个部件合并到「{master_label}」({master_id})")
+        return {"FINISHED"}
+
+
 # =============================================================================
 # Region Panel — 区域拓扑管理
 # =============================================================================
@@ -1528,6 +1667,14 @@ class AWB_PT_MainPanel(Panel):
 
     def draw(self, context):
         layout = self.layout
+        global _awb_annotations_restored, _awb_restore_needed
+        if not _awb_annotations_restored:
+            _restore_object_annotations()
+        if _awb_restore_needed:
+            _load_all_from_file()
+            # 恢复完成后立即把当前物体记入已知集合（防止 depsgraph handler 误清）
+            _awb_known_mesh_names = {o.name for o in context.scene.objects if o.type == 'MESH'}
+            _awb_restore_needed = False
         scene = context.scene
         obj = context.active_object
 
@@ -2066,6 +2213,7 @@ CLASSES = [
     AWB_OT_AddRelation,
     AWB_OT_RemoveRelation,
     AWB_OT_QuickRelation,
+    AWB_OT_MergeObjects,
     AWB_PT_WorldStatusPanel,
     AWB_PT_MainPanel,
     AWB_PT_WorldExplorerPanel,
@@ -2078,50 +2226,46 @@ _registry = []
 def _register_scene_properties():
     """注册所有 Scene + Object 级别属性"""
     
-    # === Object 级别属性（每个物体上可直接 prop 编辑）===
-    if not hasattr(bpy.types.Object, "awb_type"):
-        bpy.types.Object.awb_type = EnumProperty(
-            name="分类",
-            items=TYPE_ENUM,
-            default="unclassified",
-            description="物体语义分类"
-        )
-    if not hasattr(bpy.types.Object, "awb_flags"):
-        bpy.types.Object.awb_flags = StringProperty(
-            name="标签",
-            default="",
-            description="逗号分隔的特征标签"
-        )
-    if not hasattr(bpy.types.Object, "awb_actions"):
-        bpy.types.Object.awb_actions = StringProperty(
-            name="交互",
-            default="",
-            description="逗号分隔的交互行为"
-        )
-    if not hasattr(bpy.types.Object, "awb_region"):
-        bpy.types.Object.awb_region = StringProperty(
-            name="区域",
-            default="",
-            description="所属区域名称"
-        )
-    if not hasattr(bpy.types.Object, "awb_label"):
-        bpy.types.Object.awb_label = StringProperty(
-            name="名称",
-            default="",
-            description="语义名称（留空用物体名）"
-        )
-    if not hasattr(bpy.types.Object, "awb_id"):
-        bpy.types.Object.awb_id = StringProperty(
-            name="ID",
-            default="",
-            description="唯一标识符"
-        )
-    if not hasattr(bpy.types.Object, "awb_properties"):
-        bpy.types.Object.awb_properties = StringProperty(
-            name="属性",
-            default="{}",
-            description="JSON 格式自定义属性"
-        )
+    # === Object 级别属性（每次强制注册，取原生属性值 + JSON 恢复兜底）===
+    bpy.types.Object.awb_type = EnumProperty(
+        name="分类",
+        items=TYPE_ENUM,
+        default="unclassified",
+        description="物体语义分类",
+        get=_awb_type_get,
+        set=_awb_type_set,
+    )
+    bpy.types.Object.awb_flags = StringProperty(
+        name="标签",
+        default="",
+        description="逗号分隔的特征标签"
+    )
+    bpy.types.Object.awb_actions = StringProperty(
+        name="交互",
+        default="",
+        description="逗号分隔的交互行为"
+    )
+    bpy.types.Object.awb_region = StringProperty(
+        name="区域",
+        default="",
+        description="所属区域名称",
+        update=_on_object_region_update
+    )
+    bpy.types.Object.awb_label = StringProperty(
+        name="名称",
+        default="",
+        description="语义名称（留空用物体名）"
+    )
+    bpy.types.Object.awb_id = StringProperty(
+        name="ID",
+        default="",
+        description="唯一标识符"
+    )
+    bpy.types.Object.awb_properties = StringProperty(
+        name="属性",
+        default="{}",
+        description="JSON 格式自定义属性"
+    )
     
     # === Scene 级别属性 ===
     # 搜索 & 筛选
@@ -2168,18 +2312,8 @@ def _register_scene_properties():
     bpy.types.Scene.awb_auto_type_overwrite = BoolProperty(name="awb_auto_type_overwrite", default=False)
 
 def _unregister_scene_properties():
-    """注销所有 Scene + Object 级别属性"""
-    # Object 属性
-    obj_props = [
-        "awb_type", "awb_flags", "awb_actions",
-        "awb_region", "awb_label", "awb_id", "awb_properties",
-    ]
-    for prop in obj_props:
-        try:
-            delattr(bpy.types.Object, prop)
-        except AttributeError:
-            pass
-    
+    """注销所有 Scene 级别属性（Object 属性保留不删，避免丢标注）"""
+
     # Scene 属性
     scene_props = [
         "awb_obs_x", "awb_obs_y", "awb_obs_z", "awb_obs_radius",
@@ -2200,6 +2334,7 @@ def _unregister_scene_properties():
 
 
 _awb_known_mesh_names = set()
+_awb_restore_needed = False
 
 
 @bpy.app.handlers.persistent
@@ -2245,22 +2380,44 @@ def _auto_clear_duplicate_ids(scene):
 
 
 
+_awb_annotations_restored = False
+
+def _restore_object_annotations():
+    """Reload 后从原生自定义属性恢复 Object 标注值
+    在注册阶段 bpy.data 不可用，推迟到首次 draw 时调用。"""
+    try:
+        objs = list(bpy.data.objects)
+    except AttributeError:
+        return  # 注册阶段不可用，稍后重试
+    for obj in objs:
+        if obj.type != 'MESH':
+            continue
+        for key in ['awb_type', 'awb_flags', 'awb_actions', 'awb_region', 'awb_label', 'awb_id', 'awb_properties']:
+            native_val = obj.get(key, None)
+            if native_val is not None:
+                # 如果 bpy.props 属性是空的但原生有值，恢复
+                prop_val = getattr(obj, key, None)
+                if not prop_val and native_val:
+                    try:
+                        setattr(obj, key, native_val)
+                    except (TypeError, ValueError):
+                        pass
+    global _awb_annotations_restored
+    _awb_annotations_restored = True
+
+
 def register():
     _register_scene_properties()
     for cls in CLASSES:
         bpy.utils.register_class(cls)
         _registry.append(cls)
 
-    # 已知物体追踪 + handler：检测复制物体
-    global _awb_known_mesh_names
-    try:
-        _awb_known_mesh_names = {o.name for o in bpy.context.scene.objects if o.type == 'MESH'}
-    except Exception:
-        _awb_known_mesh_names = set()
+    # 已知物体追踪 + handler：不在这里初始化（首次 draw 时初始化）
+    # _awb_known_mesh_names 在 draw 1 恢复后设置，避免 depsgraph handler 误清
     bpy.app.handlers.depsgraph_update_post.append(_awb_on_depsgraph)
 
-    # 从 blend 文件旁恢复区域+关系
-    _load_all_from_file()
+    # 从 blend 文件旁恢复（延迟到首次 draw，register 阶段 bpy.context 可能不可用）
+    _awb_restore_needed = True
 
     # 清理旧版 Enum 残留
     try:
